@@ -84,7 +84,7 @@ if object_id('tempdb..#R1') is not null drop table #r1
 		,dense_rank() over(partition by sys_loc_code,  sample_type_code,start_depth order by sys_loc_Code, start_depth, sample_type_code, chemical_name,start_depth) as Row_ID
 		,r.chemical_name
 		,r.cas_rn
-		,rpt.fn_hai_result_qualifier(converted_result , case when detect_flag = 'N' then '<' else null end,replace(replace(reporting_qualifier,'+',''),'-',''),interpreted_qualifiers, '< # Q') AS Result_Label
+		,rpt.fn_hai_result_qualifier([rpt].[fn_thousands_separator] (converted_result) , case when detect_flag = 'N' then '<' else null end,replace(replace(reporting_qualifier,'+',''),'-',''),interpreted_qualifiers, '< # Q') AS Result_Label
 		,converted_Result as Result_Value
 		,case when detect_flag = 'Y' then '1' else '0' end as detect_flag
 		,case when detect_flag = 'Y' and cast(converted_result as float) >= cast(action_level as float) then '1' else '0' end as exceed_flag
