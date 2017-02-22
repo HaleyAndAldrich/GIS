@@ -3,17 +3,21 @@ go
 
 declare @facility_id int =   47 --PGE
 declare @loc_grp varchar (1000) = null
-declare @mth_grp as varchar (200) = 'PGE Targost Benzene Napth'
-declare @task_code varchar (1000) =   'ROW_GW_TarGOST'  --comprehensive sampling event
-declare @param varchar (1000)-- = 'benzene|naphthalene'
+declare @mth_grp as varchar (200)-- = 'PGE AIR BTEX + Napth'
+declare @task_code varchar (1000) =   '0460A011-SO'  --comprehensive sampling event
+declare @param varchar (1000) = 'Benzo(A)Pyrene Equivalent (1/2 RL substituted for ND)'
 declare @coord_type varchar (50) = 'N83SPCA III Ft'
 declare @str_len int
-declare @units varchar (20) = 'ug/l'
-declare @screening_level varchar (200) = 'PGE_SL-WG_20160115'
+declare @units varchar (20) = 'ug/kg'
+declare @screening_level varchar (200) = 'PGE_SL-so_20160115'
 
 declare @show_unvalidated_yn varchar (10) = 'y'
 
 declare @show_detects_only varchar (10) = 'n'
+if @show_detects_only = 'n' 
+	begin
+		set @show_detects_only = 'y|n'
+	end
 
 declare @chem_count int
 declare @depth_count int
@@ -28,8 +32,9 @@ declare @task table (task_code varchar (100), task_id int identity(1,1))
 insert into @task
 select distinct task_code from dt_sample s where task_code in(select cast(value as varchar (100)) from fn_split( @task_code)) order by task_code
 
-
 exec [rpt].[sp_HAI_GetParams] @facility_id,@mth_grp, @param --creates ##mthgrps
+
+select * from ##mthgrps
 
 /*get a list of detected locations*/
 declare @detect_locs table (sys_sample_code varchar (50), sys_loc_code varchar (50))
@@ -40,14 +45,13 @@ select distinct sys_sample_code, sys_loc_code--,t.analytic_method, mg.analytic_m
 	inner join dt_result r on t.facility_id = r.facility_id and t.test_id = r.test_id
 	inner join rt_analyte ra on r.cas_rn  = ra.cas_rn
 	inner join ##mthgrps mg on t.analytic_method = mg.analytic_method and replace(t.fraction, 'N','T') = mg.fraction and r.cas_rn = mg.cas_rn
-	WHERE sample_type_code in ('n','fd')
+	WHERE sample_type_code in ('n|Fd')
 			AND reportable_result = 'yes'
 			AND result_type_code = 'trg' 
 			and task_code in(select value from fn_split(@task_code))
-			and detect_flag = @show_detects_only 
+			and detect_flag in (select cast(value as varchar (10)) from fn_split(@show_detects_only ))
 			--and validated_yn in (select case when @show_detects_only = 'y'
 			and s.facility_id = @facility_id
-
 
 /* Get a temporary table for main data set ready*/
 if object_id('tempdb..#R1') is not null drop table #r1
@@ -78,10 +82,10 @@ if object_id('tempdb..#R1') is not null drop table #r1
 		,CAST(x_coord AS float) AS x_coord
 		,CAST(y_coord AS float) AS y_coord
 		,task.task_ID
-		,dense_rank() over(partition by sys_loc_code,  sample_type_code order by sys_loc_Code, start_depth, sample_type_code, chemical_name) as Row_ID
+		,dense_rank() over(partition by sys_loc_code,  sample_type_code,start_depth order by sys_loc_Code, start_depth, sample_type_code, chemical_name,start_depth) as Row_ID
 		,r.chemical_name
 		,r.cas_rn
-		,rpt.fn_hai_result_qualifier(rpt.fn_thousands_separator(converted_result) , case when detect_flag = 'N' then '<' else null end,replace(replace(reporting_qualifier,'+',''),'-',''),interpreted_qualifiers, '< # Q') AS Result_Label
+		,rpt.fn_hai_result_qualifier(converted_result , case when detect_flag = 'N' then '<' else null end,replace(replace(reporting_qualifier,'+',''),'-',''),interpreted_qualifiers, '< # Q') AS Result_Label
 		,converted_Result as Result_Value
 		,case when detect_flag = 'Y' then '1' else '0' end as detect_flag
 		,case when detect_flag = 'Y' and cast(converted_result as float) >= cast(action_level as float) then '1' else '0' end as exceed_flag
@@ -110,14 +114,14 @@ if object_id('tempdb..#R1') is not null drop table #r1
 	print 'detects selected...'
 	set @end_time = getdate() - @start_time
 	print  convert(varchar,@end_time,114)
-
+	
 
 /*Figure out the number of chemicals for loop in dynamic query*/
 set @chem_count = 
 	(select max(chem_count) from (
-	select sys_sample_code, sys_loc_code,task_code, sample_type_code, sample_date, count(chemical_name) chem_count
+	select sys_sample_code, sys_loc_code,task_code, sample_type_code, sample_date,sample_depth, count(chemical_name) chem_count
 	from #r1 
-	group by sys_sample_code,sys_loc_code, task_code, sample_type_code, sample_date)z)
+	group by sys_sample_code,sys_loc_code, task_code, sample_type_code, sample_date,sample_depth)z)
 
 /*Figure out the number of depth for loop in dynamic query*/
 set @depth_count = 
@@ -127,7 +131,7 @@ set @depth_count =
 	group by sys_sample_code,sys_loc_code, task_code, sample_type_code, sample_date)z)
 
 /*set interval for dynamic query | number of buckets = number of chemicals multipled by number of sample depths */
-set @bucket_count = @depth_count * @chem_count
+set @bucket_count =  @chem_count
 
 --*********************************************************************
 /*Pad all chemical_names with spaces. Adds 3 spaces to longest chemical_name for each location. Adds additional
@@ -154,7 +158,7 @@ spaces to each shorter name so the total number spaces creates a string the same
     set @end_time = getdate() - @start_time
 	print  convert(varchar,@end_time,114)
 
-	print  'chem count ' + cast( @chem_count as varchar)
+	print  'chem count ' + cast( @bucket_count as varchar)
 
 	declare @sql1 varchar (max)
 	declare @sql2 varchar (max) = ''
@@ -164,7 +168,7 @@ spaces to each shorter name so the total number spaces creates a string the same
 	set @sql1 = 
 
 
-	 'select ' + char(10) +
+	'select ' + char(10) +
 	'task_code,' + char(10) +
 	'mth_grp_name,' + char(10) + 
 	--'cast(sys_sample_code as varchar) as sys_sample_code, ' + char(10) +
@@ -173,21 +177,22 @@ spaces to each shorter name so the total number spaces creates a string the same
 	'sample_date,' + char(10) +
 	'cast(x_coord as float) as x_coord,' + char(10) +
 	'cast(y_coord as float) as y_coord,' + char(10) +
-	'max(cast(converted_result_unit as varchar)) as Units,' + char(10) 
+	'max(cast(converted_result_unit as varchar)) as Units,' + char(10) +
+	'sample_depth, ' + char(10)
 
 	While @count < @bucket_count + 1
 	begin
 
 	set @sql2 = @sql2 + 
-	'max(case when row_ID = ' + cast(@count as varchar) + ' and detect_flag = 1 then  chemical_name   when row_id in(98,99) then ' + '''' + 'No Detections' + '''' + ' else ' + '''' + '' + '''' + '   end )as [Chem_' + cast(@count as varchar)  +'] ,' + char(10) +
+	'max(case when row_ID = ' + cast(@count as varchar) + '  then  chemical_name   else ' + '''' + '' + '''' + '   end )as [Chem_' + cast(@count as varchar)  +'] ,' + char(10) +
 	'max(case ' + char(10) +
 			'when row_ID = ' + cast(@count as varchar) + ' and exceed_flag = 1 then ' + '''' + '<bol>' + '''' +  ' + cast(result_label  as varchar) + ' + '''' + '</bol>' + '''' + char(10) +
 			'when row_ID = ' + cast(@count as varchar) + '   and exceed_flag = 0 then    cast(result_label  as varchar) ' + char(10) +
 			'when row_id in(98,99) then ' + '''' + '--'  + '''' + char(10) +
 			' else ' + '''' + '' + ''''  + char(10) +
 		 'end )as [Result_Label_' + cast(@count as varchar) +'] ,' + char(10) +
-	'max(case when row_ID = ' + cast(@count as varchar) + '  then  cast(result_value as varchar)  else ' + '''' + '' + '''' + '  end )as [Result_Value_ '+ cast(@count as varchar) +'] ,' + char(10) +	
-	'max(case when row_ID = ' + cast(@count as varchar) + ' then  coalesce(cast(action_level as varchar),' + '''' + 'NL' + '''' + ') else  ' + '''' + '' + '''' + ' end )as [Screening_Level_ '+ cast(@count as varchar) +'] ,' + char(10) +
+	'max(case when row_ID = ' + cast(@count as varchar) + '  then  cast(result_value as varchar(20))  else ' + '''' + '' + '''' + '  end )as [Result_Value_ '+ cast(@count as varchar) +'] ,' + char(10) +	
+	'max(case when row_ID = ' + cast(@count as varchar) + ' then  coalesce(cast(action_level as varchar(20)),' + '''' + 'NL' + '''' + ') else  ' + '''' + '' + '''' + ' end )as [Screening_Level_ '+ cast(@count as varchar) +'] ,' + char(10) +
 	'max(case when row_ID = ' + cast(@count as varchar) + ' then  Detect_Flag else ' + '''' + '' + '''' + ' end )as ' +   '[Detect_Flag_' + cast(@count as varchar) +'] ,' + char(10) +
 	'max(case when row_ID = ' + cast(@count as varchar) + ' then  exceed_Flag else ' + '''' + '' + '''' + ' end )as ' +  '[Exceed_Flag_' + cast(@count as varchar) +'] ,' + char(10) +
 	char(10)+
@@ -215,7 +220,8 @@ spaces to each shorter name so the total number spaces creates a string the same
 			'sample_type_code,' + char(10) +
 			'x_coord,' + char(10) +
 			'y_coord,' + char(10) +
-			'converted_result_unit' + char(10) +
+			'converted_result_unit,' + char(10) +
+			'sample_depth' + char(10) +
 		'order by #r1.sys_loc_code, sample_date' + char(10)
 		  
 	print 'End dynamic query...'
