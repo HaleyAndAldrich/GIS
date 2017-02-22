@@ -3,13 +3,13 @@ go
 
 declare @facility_id int =   47 --PGE
 declare @loc_grp varchar (1000) = null
-declare @mth_grp as varchar (200)-- = 'PGE AIR BTEX + Napth'
-declare @task_code varchar (1000) =   '0460A011-SO'  --comprehensive sampling event
-declare @param varchar (1000) = 'Benzo(A)Pyrene Equivalent (1/2 RL substituted for ND)'
+declare @mth_grp as varchar (200) = 'PGE AIR BTEX + Napth'
+declare @task_code varchar (1000) =   '0460A011-Sv'  --comprehensive sampling event
+declare @param varchar (1000) --= 'Benzo(A)Pyrene Equivalent (1/2 RL substituted for ND)'
 declare @coord_type varchar (50) = 'N83SPCA III Ft'
 declare @str_len int
-declare @units varchar (20) = 'ug/kg'
-declare @screening_level varchar (200) = 'PGE_SL-so_20160115'
+declare @units varchar (20) = 'ug/m3'
+declare @screening_level varchar (200) = 'PGE-SL-SV-201507'
 
 declare @show_unvalidated_yn varchar (10) = 'y'
 
@@ -34,7 +34,6 @@ select distinct task_code from dt_sample s where task_code in(select cast(value 
 
 exec [rpt].[sp_HAI_GetParams] @facility_id,@mth_grp, @param --creates ##mthgrps
 
-select * from ##mthgrps
 
 /*get a list of detected locations*/
 declare @detect_locs table (sys_sample_code varchar (50), sys_loc_code varchar (50))
@@ -46,7 +45,7 @@ select distinct sys_sample_code, sys_loc_code--,t.analytic_method, mg.analytic_m
 	inner join rt_analyte ra on r.cas_rn  = ra.cas_rn
 	inner join ##mthgrps mg on t.analytic_method = mg.analytic_method and replace(t.fraction, 'N','T') = mg.fraction and r.cas_rn = mg.cas_rn
 	WHERE sample_type_code in ('n|Fd')
-			AND reportable_result = 'yes'
+			AND reportable_result like 'y%'
 			AND result_type_code = 'trg' 
 			and task_code in(select value from fn_split(@task_code))
 			and detect_flag in (select cast(value as varchar (10)) from fn_split(@show_detects_only ))
@@ -105,7 +104,7 @@ if object_id('tempdb..#R1') is not null drop table #r1
 			on r.task_code = task.task_code
 		inner join ##mthgrps mg on r.analytic_method = mg.analytic_method and r.cas_rn = mg.cas_rn and replace(r.fraction, 'N','T') = mg.fraction
 		WHERE sample_type_code in ('n','fd')
-		AND reportable_result = 'yes'
+		AND reportable_result like 'y%'
 		AND result_type_code = 'trg' 
 
 		--and detect_flag = 'y' --and validated_yn = 'y'
