@@ -1,15 +1,18 @@
 use equis
 go
 
-declare @facility_id int =   2016423 --tinkam
+/*READ ME!!   note units from mthgrp and action level are not converted in sync
+Need to check before running....*/
+
+declare @facility_id int =   174 
 declare @loc_grp varchar (1000) = null
-declare @mth_grp as varchar (200)
-declare @task_code varchar (1000) =   '128904-003'  --comprehensive sampling event
-declare @param varchar (1000) = 'trichloroethene|vinyl chloride|tetrachloroethene|1,4-dioxane'
-declare @coord_type varchar (50) = 'site coord'
+declare @mth_grp as varchar (200) = 'El Camino VocSelect'
+declare @task_code varchar (1000) =   'wm-2016-q4'  --comprehensive sampling event
+declare @param varchar (1000) --= 'trichloroethene|vinyl chloride|tetrachloroethene|1,4-dioxane'
+declare @coord_type varchar (50) = 'N83 UTM Z12N'
 declare @str_len int
-declare @units varchar (20) = 'ug/l'
-declare @screening_level varchar (200) = 'NH_ENV-OR_600-1_AMBIENT_GW_QUALITY'
+declare @units varchar (20)-- = 'ug/l'
+declare @screening_level varchar (200) = 'State-AZ-AWQS-El_Camino'
 
 declare @show_unvalidated_yn varchar (10) = 'y'
 
@@ -28,6 +31,8 @@ select distinct task_code from dt_sample s where task_code in(select cast(value 
 
 
 exec [rpt].[sp_HAI_GetParams] @facility_id,@mth_grp, @param --creates ##mthgrps
+
+
 
 /*get a list of detected locations*/
 declare @detect_locs table (sys_sample_code varchar (50), sys_loc_code varchar (50))
@@ -70,7 +75,7 @@ if object_id('tempdb..#R1') is not null drop table #r1
 		,CAST(y_coord AS float) AS y_coord
 		,task.task_ID
 		,row_number() over(partition by sys_sample_code, sys_loc_code,sample_type_code, sample_Date, task_id order by sys_sample_code,sys_loc_Code,sample_type_code, sample_Date, chemical_name) as Row_ID
-		,r.chemical_name
+		,coalesce(mg.parameter, r.chemical_name) as chemical_name
 		,r.cas_rn
 		,rpt.fn_hai_result_qualifier(rpt.fn_thousands_separator(converted_result) , case when detect_flag = 'N' then '<' else null end,replace(replace(reporting_qualifier,'+',''),'-',''),interpreted_qualifiers, '< # Q') AS Result_Label
 		,converted_Result as Result_Value
@@ -85,8 +90,8 @@ if object_id('tempdb..#R1') is not null drop table #r1
 
 		FROM     rpt.fn_HAI_EQuIS_Results(@facility_id, @units, NULL, @coord_Type) AS r
 
-		left join (select param_code as cas_Rn, equis.unit_conversion(action_level,unit,@units,default) as action_level, unit 
-			as action_level_unit from  dt_action_level_parameter where action_level_code = @screening_level) al
+		left join (select param_code as cas_Rn, action_level as action_level, unit 
+			as action_level_unit from  dt_action_level_parameter where action_level_code  = @screening_level) al
 		on r.cas_rn = al.cas_rn
 		inner join @task task
 			on r.task_code = task.task_code
@@ -100,7 +105,6 @@ if object_id('tempdb..#R1') is not null drop table #r1
 	print 'detects selected...'
 	set @end_time = getdate() - @start_time
 	print  convert(varchar,@end_time,114)
-
 
 /*Figure out the number of chemicals for loop in dynamic query*/
 set @chem_count = 
@@ -159,7 +163,7 @@ spaces to each shorter name so the total number spaces creates a string the same
 	begin
 
 	set @sql2 = @sql2 + 
-	'max(case when row_ID = ' + cast(@count as varchar) + ' and detect_flag = 1 then  chemical_name   when row_id in(98,99) then ' + '''' + 'No Detections' + '''' + ' else ' + '''' + '' + '''' + '   end )as [Chem_' + cast(@count as varchar)  +'] ,' + char(10) +
+	'max(case when row_ID = ' + cast(@count as varchar) + ' then  chemical_name   else ' + '''' + '' + '''' + '   end )as [Chem_' + cast(@count as varchar)  +'] ,' + char(10) +
 	'max(case ' + char(10) +
 			'when row_ID = ' + cast(@count as varchar) + ' and exceed_flag = 1 then ' + '''' + '<bol>' + '''' +  ' + cast(result_label  as varchar) + ' + '''' + '</bol>' + '''' + char(10) +
 			'when row_ID = ' + cast(@count as varchar) + '   and exceed_flag = 0 then    cast(result_label  as varchar) ' + char(10) +
