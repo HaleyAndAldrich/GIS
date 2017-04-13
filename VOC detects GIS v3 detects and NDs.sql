@@ -7,7 +7,7 @@ Need to check before running....*/
 declare @facility_id int =   174 
 declare @loc_grp varchar (1000) = null
 declare @mth_grp as varchar (200) = 'El Camino VocSelect'
-declare @task_code varchar (1000) =   'wm-2016-q4'  --comprehensive sampling event
+declare @task_code varchar (1000) --=   'wm-2016-q4'  --comprehensive sampling event
 declare @param varchar (1000) --= 'trichloroethene|vinyl chloride|tetrachloroethene|1,4-dioxane'
 declare @coord_type varchar (50) = 'N83 UTM Z12N'
 declare @str_len int
@@ -26,8 +26,16 @@ declare @end_time datetime
 declare @task table (task_code varchar (100), task_id int identity(1,1))
 
 --create list of task codes so they can be ordered with ID field
-insert into @task
-select distinct task_code from dt_sample s where task_code in(select cast(value as varchar (100)) from fn_split( @task_code)) order by task_code
+if (select count(@task_code)) >0 
+	begin
+		insert into @task
+		select distinct task_code from dt_sample s where facility_id = @facility_id and task_code in(select cast(value as varchar (100)) from fn_split( @task_code)) order by task_code
+	end
+if (select count(@task_code)) = 0
+	begin
+		insert into @task
+		select distinct task_code from dt_sample s where facility_id = @facility_id  order by task_code
+	end
 
 
 exec [rpt].[sp_HAI_GetParams] @facility_id,@mth_grp, @param --creates ##mthgrps
@@ -200,7 +208,7 @@ spaces to each shorter name so the total number spaces creates a string the same
 			'x_coord,' + char(10) +
 			'y_coord,' + char(10) +
 			'converted_result_unit' + char(10) +
-		'order by #r1.sys_loc_code, sample_date' + char(10)
+		'order by task_code, #r1.sys_loc_code, sample_date' + char(10)
 		  
 	print 'End dynamic query...'
 	set @end_time = getdate() - @start_time
