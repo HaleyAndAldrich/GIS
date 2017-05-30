@@ -5,8 +5,8 @@ go
 Need to check before running....*/
 
 
-create procedure hai.sp_gis_labels(
-	 @facility_id int =   47
+
+	 declare @facility_id int =   47
 	, @loc_grp varchar (1000) = null
 	, @mth_grp as varchar (200) = 'pge-gw-alk-pahs-051517'
 	, @task_code varchar (1000)  = 'row_gw_2017_1q'
@@ -17,10 +17,9 @@ create procedure hai.sp_gis_labels(
 	, @T_or_D varchar(10) = 'D'
 	, @show_unvalidated_yn varchar (10) = 'y'
 	, @show_detects_only varchar (10) = 'n'
-	)
+	
 
-	as
-	begin
+
 		declare @chem_count int
 		,@start_time datetime
 		,@end_time datetime
@@ -288,4 +287,4 @@ create procedure hai.sp_gis_labels(
 			set @end_time = getdate() - @start_time
 			print  convert(varchar,@end_time,114)
 
-	end
+	
